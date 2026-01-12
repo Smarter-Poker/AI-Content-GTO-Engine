@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 🧠 GLOBAL OVERRIDES FOR "VIDEO GAME" FEEL */
+body {
+    background-color: #18191A;
+    color: #E4E6EB;
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+}
+
+/* 🌀 KINETIC SCROLLBARS */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #18191A;
+}
+::-webkit-scrollbar-thumb {
+    background: #3E4042;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #1877F2;
+}
+
+/* ⚡️ SELECTION */
+::selection {
+    background: #1877F2;
+    color: white;
+}

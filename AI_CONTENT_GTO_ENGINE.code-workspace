@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"name": "AI_CONTENT_GTO_ENGINE",
+			"path": "."
+		},
+		{
+			"name": "IDENTITY_DNA_ENGINE",
+			"path": "../IDENTITY_DNA_ENGINE"
+		},
+		{
+			"path": "../DIAMOND_ECONOMY_RAILS"
+		}
+	],
+	"settings": {}
+}
