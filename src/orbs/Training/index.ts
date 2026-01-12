@@ -104,9 +104,15 @@ export const ORB_04_MANIFEST = {
     sealedAt: '2026-01-09T23:01:02-06:00'
 } as const;
 
+// Re-import for default export
+import { MasteryGate as MasteryGateClass } from './MasteryGate';
+import { LevelRegistry as LevelRegistryClass } from './LevelRegistry';
+import { DrillInterface as DrillInterfaceComponent } from './DrillInterface';
+
 export default {
-    MasteryGate,
-    LevelRegistry,
-    DrillInterface,
+    MasteryGate: MasteryGateClass,
+    LevelRegistry: LevelRegistryClass,
+    DrillInterface: DrillInterfaceComponent,
     ORB_04_MANIFEST
 };
+

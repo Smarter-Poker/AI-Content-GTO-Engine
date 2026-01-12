@@ -14,7 +14,7 @@ interface Seat {
     id: string; // 'BTN', 'SB', 'BB', 'UTG', etc.
     label: string;
     chips: number;
-    cards?: [string, string]; // 'Ah', 'Kd'
+    cards?: [string, string] | null; // 'Ah', 'Kd'
     isActive: boolean;
     isHero: boolean;
     isFolded: boolean;

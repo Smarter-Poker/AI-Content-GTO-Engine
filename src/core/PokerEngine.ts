@@ -11,6 +11,7 @@ export type ActionType = 'FOLD' | 'CHECK' | 'CALL' | 'BET' | 'RAISE';
 
 export interface SeatState {
     id: string; // 'BTN', 'SB', 'BB', etc.
+    label: string;
     chips: number;
     cards: [string, string] | null; // ['Ah', 'Kd'] or null if no cards/folded
     isActive: boolean; // Is currently in the hand
@@ -60,8 +61,10 @@ export class PokerEngine {
         // Rotate so Hero (UTG+1) is at index 3? 
         // Let's just create 9 seats.
 
+        const seatLabels = ['SB', 'BB', 'UTG', 'UTG+1', 'LJ', 'HJ', 'CO', 'BTN', 'V1'];
         const seats: SeatState[] = Array(9).fill(null).map((_, i) => ({
-            id: ['SB', 'BB', 'UTG', 'UTG+1', 'LJ', 'HJ', 'CO', 'BTN', 'V1'][i],
+            id: seatLabels[i],
+            label: seatLabels[i],
             chips: 100,
             cards: null,
             isActive: true,

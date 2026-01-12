@@ -36,3 +36,4 @@ supabase-cli
 
 # Misc
 *.tgz
+.vercel
