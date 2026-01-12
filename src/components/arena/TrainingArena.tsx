@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { NeuralField } from '../neural/NeuralField';
 import { HeroTable } from './HeroTable';
 import { TactileBetSlider } from './TactileBetSlider';
 import { GTOGrid } from './GTOGrid';
+import { FeedbackBurst, useFeedback } from '../feedback/FeedbackBurst';
+import { StreakHUD } from '../hud/StreakHUD';
 import { motion } from 'framer-motion';
 import { gameLibrary, GameDefinition } from '../../core/GameLibrary';
 import { pokerEngine, GameState } from '../../core/PokerEngine';
+import { xpEngine, XPEvent } from '../../core/XPEngine';
 
 /**
  * 🏟️ TRAINING ARENA
@@ -16,6 +19,7 @@ import { pokerEngine, GameState } from '../../core/PokerEngine';
  * - "Facebook Dark" Aesthetic (#18191A bg, #242526 surfaces, #1877F2 accents)
  * - Hero-Centric Layout (Action anchored bottom)
  * - Kinetic Feedback (Everything moves)
+ * - XP & Streak Integration (Gamification)
  */
 
 export const TrainingArena: React.FC = () => {
@@ -24,13 +28,16 @@ export const TrainingArena: React.FC = () => {
 
     // 🎭 Local State for UI Polish
     const [activeTab, setActiveTab] = useState<'DRILL' | 'ANALYSIS' | 'LEADERBOARD'>('DRILL');
-    const [score, setScore] = useState(0);
     const [activeGame, setActiveGame] = useState<GameDefinition | null>(null);
     const [gameState, setGameState] = useState<GameState>(pokerEngine.getState());
     const [showGrid, setShowGrid] = useState(false);
 
     // Bet Slider State
     const [betAmount, setBetAmount] = useState(2.5);
+
+    // XP & Streak State
+    const [xpState, setXPState] = useState(xpEngine.getState());
+    const { feedback, triggerCorrect, triggerIncorrect, triggerStreak, clearFeedback } = useFeedback();
 
     // Load Game from URL
     useEffect(() => {
@@ -58,6 +65,23 @@ export const TrainingArena: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
+    // Subscribe to XP Engine
+    useEffect(() => {
+        const unsubscribe = xpEngine.subscribe((state, event) => {
+            setXPState({ ...state });
+
+            // Trigger visual feedback based on event type
+            if (event.type === 'CORRECT') {
+                triggerCorrect(event.totalXP, state.currentStreak, xpEngine.getComboName());
+            } else if (event.type === 'INCORRECT') {
+                triggerIncorrect(event.streak);
+            } else if (event.type === 'STREAK_BONUS') {
+                triggerStreak(event.streak, event.totalXP);
+            }
+        });
+        return () => unsubscribe();
+    }, []);
+
     // Update default bet amount when state changes (e.g. street change)
     useEffect(() => {
         // Simple heuristic: reset slider when it becomes our turn
@@ -69,13 +93,54 @@ export const TrainingArena: React.FC = () => {
     const hero = gameState.seats[gameState.heroSeatIndex];
     const isHeroTurn = gameState.activeSeatIndex === gameState.heroSeatIndex;
 
+    // 🧠 MOCK GTO EVALUATION
+    // In production, this would query the solver. For now, random 60% correct rate.
+    const evaluateDecision = useCallback((action: string) => {
+        // Mock: CALL is "correct" 80% of the time for this scenario
+        // FOLD is never "correct" (for AK facing a raise)
+        // BET/RAISE is "correct" 60% of the time
+
+        let isCorrect = false;
+
+        if (action === 'FOLD') {
+            isCorrect = false; // AK should never fold facing a single raise
+        } else if (action === 'CALL') {
+            isCorrect = Math.random() > 0.2; // 80% correct
+        } else if (action === 'BET' || action === 'RAISE') {
+            isCorrect = Math.random() > 0.4; // 60% correct (sometimes 3-bet is too loose)
+        }
+
+        return isCorrect;
+    }, []);
+
     const handleAction = (type: 'FOLD' | 'CHECK' | 'CALL' | 'BET', amount?: number) => {
         if (!isHeroTurn) return;
+
+        // Evaluate the decision before executing
+        const isCorrect = evaluateDecision(type);
+
+        // Record XP
+        if (isCorrect) {
+            xpEngine.recordCorrect();
+        } else {
+            xpEngine.recordIncorrect();
+        }
+
+        // Execute the action
         pokerEngine.act(type, amount);
     };
 
     return (
         <div className="relative w-full h-screen overflow-hidden text-[#E4E6EB] font-sans selection:bg-[#1877F2] selection:text-white">
+
+            {/* 💥 FEEDBACK BURST OVERLAY */}
+            <FeedbackBurst
+                type={feedback.type}
+                xpAmount={feedback.xpAmount}
+                streakCount={feedback.streakCount}
+                comboName={feedback.comboName}
+                onComplete={clearFeedback}
+            />
 
             {/* 1. THE LIVING BACKGROUND */}
             <NeuralField />
@@ -114,21 +179,13 @@ export const TrainingArena: React.FC = () => {
                     ))}
                 </div>
 
-                {/* STATS CLUSTER */}
-                <div className="flex items-center gap-6 text-sm font-medium">
-                    {/* Pot Display */}
-                    <div className="flex flex-col items-end leading-none">
-                        <span className="text-[10px] text-[#B0B3B8] uppercase tracking-wider">Pot</span>
-                        <span className="text-[#1877F2] font-bold text-lg">{gameState.pot.toFixed(1)} BB</span>
-                    </div>
-
-                    <div className="w-[1px] h-8 bg-[#3E4042]" />
-
-                    <div className="flex flex-col items-end leading-none">
-                        <span className="text-[10px] text-[#B0B3B8] uppercase tracking-wider">Session XP</span>
-                        <span className="text-white font-bold">{score.toLocaleString()} XP</span>
-                    </div>
-                </div>
+                {/* 🔥 STREAK HUD */}
+                <StreakHUD
+                    streak={xpState.currentStreak}
+                    sessionXP={xpState.sessionXP}
+                    accuracy={xpEngine.getAccuracy()}
+                    comboName={xpEngine.getComboName()}
+                />
             </header>
 
             {/* 3. THE ARENA CORE (Playable Space) */}
@@ -156,7 +213,7 @@ export const TrainingArena: React.FC = () => {
                     <button
                         onClick={() => handleAction('FOLD')}
                         disabled={!isHeroTurn}
-                        className="w-32 h-12 rounded-xl bg-[#242526] border border-[#3E4042] hover:bg-[#3A3B3C] text-[#B0B3B8] font-bold transition-colors flex items-center justify-center gap-2 group disabled:opacity-50"
+                        className="w-32 h-12 rounded-xl bg-[#242526] border border-[#3E4042] hover:bg-red-500/20 hover:border-red-500/50 text-[#B0B3B8] hover:text-red-400 font-bold transition-colors flex items-center justify-center gap-2 group disabled:opacity-50"
                     >
                         <div className="w-2 h-2 rounded-full bg-[#B0B3B8] group-hover:bg-red-500 transition-colors" />
                         FOLD
@@ -166,10 +223,10 @@ export const TrainingArena: React.FC = () => {
                     <button
                         onClick={() => handleAction('CALL')} // Simplification for now
                         disabled={!isHeroTurn}
-                        className="w-32 h-12 rounded-xl bg-[#242526] border border-[#3E4042] hover:bg-[#3A3B3C] text-white font-bold transition-colors flex items-center justify-center gap-2 group disabled:opacity-50"
+                        className="w-32 h-12 rounded-xl bg-[#242526] border border-[#3E4042] hover:bg-green-500/20 hover:border-green-500/50 text-white hover:text-green-400 font-bold transition-colors flex items-center justify-center gap-2 group disabled:opacity-50"
                     >
-                        <div className="w-2 h-2 rounded-full bg-white group-hover:bg-[#1877F2] transition-colors" />
-                        CALL {hero?.currentBet < gameState.minBet ? (gameState.minBet - hero.currentBet) : ''}
+                        <div className="w-2 h-2 rounded-full bg-white group-hover:bg-green-500 transition-colors" />
+                        CALL
                     </button>
 
                     {/* BET SLIDER (The Tactile Core) */}
