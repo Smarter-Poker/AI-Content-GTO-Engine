@@ -1,5 +1,5 @@
 /**
- * 🏆 XP ENGINE
+ * 🏆 XP ENGINE (BUS INTEGRATED)
  * ═══════════════════════════════════════════════════════════════════════════
  * The "Addiction" Core. Makes every action FEEL rewarding.
  * 
@@ -7,8 +7,12 @@
  * - XP CAN NEVER BE LOST (Immutable)
  * - Streak multipliers reward consistency
  * - Combo bonuses for consecutive correct answers
+ * 
+ * NOW INTEGRATED WITH GLOBAL EVENT BUS
  * ═══════════════════════════════════════════════════════════════════════════
  */
+
+import { eventBus } from './EventBus';
 
 export interface XPEvent {
     type: 'CORRECT' | 'INCORRECT' | 'STREAK_BONUS' | 'COMBO' | 'LEVEL_COMPLETE';
@@ -26,7 +30,7 @@ export interface XPState {
     maxStreak: number;
     correctCount: number;
     incorrectCount: number;
-    comboLevel: number; // 1-5 (Normal, Good, Great, Excellent, Perfect)
+    comboLevel: number; // 0-4 (Normal, Good, Great, Excellent, Perfect)
 }
 
 // 🎯 XP VALUES
@@ -36,15 +40,20 @@ const XP_BASE = {
     STREAK_3: 150, // Bonus at 3 streak
     STREAK_5: 300, // Bonus at 5 streak
     STREAK_10: 500, // Bonus at 10 streak
+    STREAK_25: 1500,
+    STREAK_50: 5000,
+    STREAK_100: 15000,
     LEVEL_COMPLETE: 1000,
 };
 
 // 🔥 STREAK MULTIPLIERS
 const STREAK_MULTIPLIER = (streak: number): number => {
-    if (streak >= 10) return 2.5;
-    if (streak >= 7) return 2.0;
-    if (streak >= 5) return 1.75;
-    if (streak >= 3) return 1.5;
+    if (streak >= 25) return 3.0;
+    if (streak >= 15) return 2.5;
+    if (streak >= 10) return 2.0;
+    if (streak >= 7) return 1.75;
+    if (streak >= 5) return 1.5;
+    if (streak >= 3) return 1.25;
     return 1.0;
 };
 
@@ -52,12 +61,16 @@ const STREAK_MULTIPLIER = (streak: number): number => {
 const COMBO_THRESHOLDS = [0, 3, 5, 7, 10];
 const COMBO_NAMES = ['NORMAL', 'GOOD', 'GREAT', 'EXCELLENT', 'PERFECT'] as const;
 
+// 🏆 STREAK MILESTONES (for diamond rewards)
+const STREAK_MILESTONES = [5, 10, 25, 50, 100];
+
 export type ComboLevel = typeof COMBO_NAMES[number];
 
 export class XPEngine {
     private state: XPState;
     private listeners: ((state: XPState, event: XPEvent) => void)[] = [];
     private eventHistory: XPEvent[] = [];
+    private previousComboLevel: number = 0;
 
     constructor(initialXP: number = 0) {
         this.state = {
@@ -88,6 +101,7 @@ export class XPEngine {
         const totalXP = Math.round(baseXP * multiplier);
 
         // Update combo level
+        this.previousComboLevel = this.state.comboLevel;
         this.state.comboLevel = COMBO_THRESHOLDS.findIndex(
             (threshold, i) => this.state.currentStreak >= threshold &&
                 (i === COMBO_THRESHOLDS.length - 1 || this.state.currentStreak < COMBO_THRESHOLDS[i + 1])
@@ -107,12 +121,35 @@ export class XPEngine {
         };
 
         this.eventHistory.push(event);
-        this.notify(event);
 
-        // Check for streak bonuses
-        if (this.state.currentStreak === 3) this.awardStreakBonus(3);
-        if (this.state.currentStreak === 5) this.awardStreakBonus(5);
-        if (this.state.currentStreak === 10) this.awardStreakBonus(10);
+        // 🚌 EMIT TO GLOBAL BUS
+        eventBus.emit('DECISION_CORRECT', {
+            xp: totalXP,
+            streak: this.state.currentStreak,
+            multiplier,
+            combo: this.getComboName()
+        }, 'XPEngine');
+
+        eventBus.emit('XP_EARNED', {
+            amount: totalXP,
+            source: 'TRAINING_CORRECT',
+            multiplier
+        }, 'XPEngine');
+
+        // Check for combo level up
+        if (this.state.comboLevel > this.previousComboLevel) {
+            eventBus.emit('COMBO_LEVEL_UP', {
+                newLevel: this.getComboName(),
+                streak: this.state.currentStreak
+            }, 'XPEngine');
+        }
+
+        // Check for streak milestones
+        if (STREAK_MILESTONES.includes(this.state.currentStreak)) {
+            this.awardStreakMilestone(this.state.currentStreak);
+        }
+
+        this.notify(event);
 
         return event;
     }
@@ -136,29 +173,64 @@ export class XPEngine {
         };
 
         this.eventHistory.push(event);
+
+        // 🚌 EMIT TO GLOBAL BUS
+        eventBus.emit('DECISION_INCORRECT', {
+            lostStreak
+        }, 'XPEngine');
+
+        if (lostStreak >= 3) {
+            eventBus.emit('STREAK_LOST', {
+                lostStreak
+            }, 'XPEngine');
+        }
+
         this.notify(event);
 
         return event;
     }
 
-    private awardStreakBonus(streakLevel: 3 | 5 | 10): void {
-        const bonusMap = { 3: XP_BASE.STREAK_3, 5: XP_BASE.STREAK_5, 10: XP_BASE.STREAK_10 };
-        const bonus = bonusMap[streakLevel];
-
-        this.state.sessionXP += bonus;
-        this.state.totalXP += bonus;
-
-        const event: XPEvent = {
-            type: 'STREAK_BONUS',
-            baseXP: bonus,
-            multiplier: 1,
-            totalXP: bonus,
-            streak: streakLevel,
-            timestamp: Date.now()
+    /**
+     * Award streak milestone bonus
+     */
+    private awardStreakMilestone(streak: number): void {
+        const bonusMap: Record<number, number> = {
+            5: XP_BASE.STREAK_5,
+            10: XP_BASE.STREAK_10,
+            25: XP_BASE.STREAK_25,
+            50: XP_BASE.STREAK_50,
+            100: XP_BASE.STREAK_100
         };
+        const bonus = bonusMap[streak] || 0;
 
-        this.eventHistory.push(event);
-        this.notify(event);
+        if (bonus > 0) {
+            this.state.sessionXP += bonus;
+            this.state.totalXP += bonus;
+
+            const event: XPEvent = {
+                type: 'STREAK_BONUS',
+                baseXP: bonus,
+                multiplier: 1,
+                totalXP: bonus,
+                streak: streak,
+                timestamp: Date.now()
+            };
+
+            this.eventHistory.push(event);
+
+            // 🚌 EMIT STREAK MILESTONE
+            eventBus.emit('STREAK_MILESTONE', {
+                streak,
+                bonusXP: bonus
+            }, 'XPEngine');
+
+            eventBus.emit('XP_BONUS', {
+                amount: bonus,
+                reason: `${streak} STREAK!`
+            }, 'XPEngine');
+
+            this.notify(event);
+        }
     }
 
     /**
@@ -173,6 +245,13 @@ export class XPEngine {
      */
     public getComboName(): ComboLevel {
         return COMBO_NAMES[this.state.comboLevel] || 'NORMAL';
+    }
+
+    /**
+     * Get streak multiplier
+     */
+    public getMultiplier(): number {
+        return STREAK_MULTIPLIER(this.state.currentStreak);
     }
 
     /**
@@ -208,7 +287,22 @@ export class XPEngine {
         this.state.correctCount = 0;
         this.state.incorrectCount = 0;
         this.state.comboLevel = 0;
+        this.previousComboLevel = 0;
         this.eventHistory = [];
+
+        eventBus.emit('SESSION_START', {}, 'XPEngine');
+    }
+
+    /**
+     * End session
+     */
+    public endSession(): void {
+        eventBus.emit('SESSION_END', {
+            accuracy: this.getAccuracy(),
+            totalXP: this.state.sessionXP,
+            maxStreak: this.state.maxStreak,
+            handsPlayed: this.state.correctCount + this.state.incorrectCount
+        }, 'XPEngine');
     }
 }
 
